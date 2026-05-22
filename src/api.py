@@ -1,15 +1,7 @@
 """
 api.py
 ─────────────────────────────────────────────────────────────────────────────
-FastAPI backend that loads the trained model and exposes:
-
-  POST /predict          — predict a single URL
-  POST /predict/batch    — predict up to 50 URLs at once
-  GET  /health           — liveness check
-  GET  /model/info       — feature list + model metadata
-
-Run with:
-    uvicorn api:app --reload --port 8000
+Production-ready FastAPI backend that loads the trained model from sister directory.
 """
 
 import os
@@ -21,41 +13,52 @@ import sys
 
 import numpy as np
 import uvicorn
+import joblib  # Fallback mechanism for loading model binaries cleanly
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl, field_validator
 
-# ─── paths ───────────────────────────────────────────────────────────────────
+# ─── Paths Configuration ───────────────────────────────────────────────────
 
 BASE_DIR   = Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE_DIR / "models"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from feature_extractor import extract_url_features, extract_whois_features
+try:
+    from feature_extractor import extract_url_features, extract_whois_features
+except ImportError as e:
+    print(f"[CRITICAL] Failed to import feature_extractor.py: {e}")
+    print(f"Current Sys Path: {sys.path}")
+    raise e
 
-# ─── load model artefacts ────────────────────────────────────────────────────
+# ─── Robust Model Loader ───────────────────────────────────────────────────
 
 def _load(name):
     p = MODELS_DIR / name
     if not p.exists():
         raise FileNotFoundError(
-            f"Model file '{p}' not found. "
-            "Run `python src/train_model.py` first."
+            f"Model file '{p}' not found. Verify it is pushed to your models/ directory."
         )
-    with open(p, "rb") as f:
-        return pickle.load(f)
+    
+    # Try loading with joblib first (handles scikit-learn large arrays better), fallback to pickle
+    try:
+        return joblib.load(p)
+    except Exception:
+        with open(p, "rb") as f:
+            return pickle.load(f)
 
+# Crash loudly during initialization if files are missing so Render logs can show it
 try:
     MODEL         = _load("model.pkl")
     SCALER        = _load("scaler.pkl")
     FEATURE_NAMES = _load("feature_names.pkl")
     WHOIS_PRESENT = "domain_age_days" in FEATURE_NAMES
-    print(f"[INFO] Model loaded — {len(FEATURE_NAMES)} features, "
+    print(f"[INFO] Model loaded successfully — {len(FEATURE_NAMES)} features, "
           f"WHOIS={'yes' if WHOIS_PRESENT else 'no'}")
-except FileNotFoundError as e:
-    print(f"[WARN] {e}")
-    MODEL = SCALER = FEATURE_NAMES = None
-    WHOIS_PRESENT = False
+except Exception as e:
+    print(f"[CRITICAL] Model loading pipeline failed: {e}")
+    # Force process exit so Render captures the exact stack trace
+    sys.exit(1)
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
 
@@ -67,16 +70,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # tighten for production
+    allow_origins=["*"],      
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ─── request / response schemas ──────────────────────────────────────────────
+# ─── Request / Response Schemas ──────────────────────────────────────────────
 
 class PredictRequest(BaseModel):
     url: str
-    use_whois: bool = False   # set True for better accuracy, slower response
+    use_whois: bool = False   
 
     @field_validator("url")
     @classmethod
@@ -89,11 +92,11 @@ class PredictRequest(BaseModel):
 
 class PredictResponse(BaseModel):
     url:        str
-    prediction: str          # "phishing" | "legitimate"
-    confidence: float        # 0.0 – 1.0
-    risk_score: float        # 0–100 (easier to display)
-    risk_level: str          # "Low" | "Medium" | "High" | "Critical"
-    features:   dict         # raw feature values (for explainability)
+    prediction: str          
+    confidence: float        
+    risk_score: float        
+    risk_level: str          
+    features:   dict         
     latency_ms: float
 
 
@@ -109,7 +112,7 @@ class BatchRequest(BaseModel):
         return v
 
 
-# ─── helpers ─────────────────────────────────────────────────────────────────
+# ─── Core Inference Engine ───────────────────────────────────────────────────
 
 def _risk_level(score: float) -> str:
     if score < 25:   return "Low"
@@ -121,17 +124,16 @@ def _risk_level(score: float) -> str:
 def _predict_one(url: str, use_whois: bool) -> PredictResponse:
     t0 = time.perf_counter()
 
-    # extract features
+    # Extract features
     feats = extract_url_features(url)
     if use_whois and WHOIS_PRESENT:
         feats.update(extract_whois_features(url))
     elif WHOIS_PRESENT:
-        # model was trained with WHOIS features — supply -1 sentinels
         feats.setdefault("domain_age_days",   -1)
         feats.setdefault("days_until_expiry",  -1)
         feats.setdefault("whois_available",     0)
 
-    # align to training feature order
+    # Align to training feature array layout
     row = np.array([feats.get(f, 0) for f in FEATURE_NAMES], dtype=float).reshape(1, -1)
     row_scaled = SCALER.transform(row)
 
@@ -153,7 +155,7 @@ def _predict_one(url: str, use_whois: bool) -> PredictResponse:
     )
 
 
-# ─── routes ──────────────────────────────────────────────────────────────────
+# ─── API Routes ──────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
@@ -166,8 +168,6 @@ def health():
 
 @app.get("/model/info")
 def model_info():
-    if not MODEL:
-        raise HTTPException(503, "Model not loaded. Run train_model.py first.")
     return {
         "model_type":    type(MODEL).__name__,
         "n_features":    len(FEATURE_NAMES),
@@ -179,8 +179,6 @@ def model_info():
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest):
-    if not MODEL:
-        raise HTTPException(503, "Model not loaded. Run train_model.py first.")
     try:
         return _predict_one(req.url, req.use_whois)
     except Exception as e:
@@ -189,8 +187,6 @@ def predict(req: PredictRequest):
 
 @app.post("/predict/batch")
 def predict_batch(req: BatchRequest):
-    if not MODEL:
-        raise HTTPException(503, "Model not loaded. Run train_model.py first.")
     results = []
     for url in req.urls:
         try:
@@ -203,8 +199,6 @@ def predict_batch(req: BatchRequest):
             results.append({"url": url, "error": str(e)})
     return {"results": results, "count": len(results)}
 
-
-# ─── main ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
