@@ -12,6 +12,7 @@ Run with:
     uvicorn api:app --reload --port 8000
 """
 
+import os
 import pickle
 import time
 from pathlib import Path
@@ -206,4 +207,5 @@ def predict_batch(req: BatchRequest):
 # ─── main ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)
