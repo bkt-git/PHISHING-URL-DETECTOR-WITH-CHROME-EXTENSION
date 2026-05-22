@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PhishGuard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0c0f16;
+    --surface:  #131825;
+    --surface2: #1a2235;
+    --border:   #1f2d45;
+    --accent:   #00d4ff;
+    --danger:   #ff3c5c;
+    --warn:     #ffb830;
+    --safe:     #00e5a0;
+    --text:     #e2e8f4;
+    --muted:    #4d6180;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Syne', sans-serif;
+  }
+
+  body {
+    width: 360px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+
+  /* ── header ─────────────────────────────────────────────────── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .hex-shield {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), #0055ff);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0;
+  }
+
+  .header-text h1 {
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: -.5px;
+    background: linear-gradient(90deg, var(--accent), #7c88ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .header-text p {
+    font-family: var(--mono);
+    font-size: .62rem;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  .rescan-btn {
+    margin-left: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: .7rem;
+    font-family: var(--mono);
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+  }
+  .rescan-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── url bar ─────────────────────────────────────────────────── */
+  .url-bar {
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: .68rem;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── scanning state ──────────────────────────────────────────── */
+  #state-scanning {
+    display: none;
+    padding: 28px 16px;
+    text-align: center;
+  }
+
+  .pulse-ring {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    margin: 0 auto 14px;
+    position: relative;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .pulse-ring::after {
+    content: '🛡';
+    font-size: 22px;
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1);   opacity: 1; }
+    50%       { transform: scale(1.1); opacity: .7; }
+  }
+
+  .scan-label {
+    font-family: var(--mono);
+    font-size: .78rem;
+    color: var(--muted);
+  }
+
+  .scan-dots::after {
+    content: '';
+    animation: dots 1.2s steps(4, end) infinite;
+  }
+  @keyframes dots {
+    0%  { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+  }
+
+  /* ── error state ─────────────────────────────────────────────── */
+  #state-error {
+    display: none;
+    padding: 20px 16px;
+  }
+  .error-box {
+    background: rgba(255,60,92,.08);
+    border: 1px solid rgba(255,60,92,.25);
+    border-radius: 10px;
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--danger);
+    line-height: 1.6;
+  }
+  .error-box .err-title { font-weight: 700; margin-bottom: 4px; }
+  .error-cmd {
+    margin-top: 8px;
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: var(--accent);
+    font-size: .65rem;
+  }
+
+  /* ── result state ────────────────────────────────────────────── */
+  #state-result { display: none; }
+
+  /* verdict strip */
+  .verdict-strip {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .verdict-strip.phishing {
+    background: linear-gradient(135deg, rgba(255,60,92,.15), rgba(180,0,40,.08));
+  }
+  .verdict-strip.legitimate {
+    background: linear-gradient(135deg, rgba(0,229,160,.12), rgba(0,100,80,.06));
+  }
+
+  .verdict-emoji { font-size: 2rem; line-height: 1; flex-shrink: 0; }
+
+  .verdict-info h2 {
+    font-size: .95rem;
+    font-weight: 800;
+    letter-spacing: -.3px;
+  }
+  .verdict-info p {
+    font-family: var(--mono);
+    font-size: .62rem;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .score-pill {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .score-num {
+    font-size: 1.5rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .score-lbl {
+    font-family: var(--mono);
+    font-size: .55rem;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  /* gauge */
+  .gauge-wrap { padding: 10px 16px 4px; }
+  .gauge-row {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: .6rem;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+  .gauge-track {
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width .7s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* features */
+  .section {
+    padding: 10px 16px 4px;
+  }
+  .section-label {
+    font-family: var(--mono);
+    font-size: .58rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+
+  .feat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .feat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-family: var(--mono);
+    font-size: .68rem;
+  }
+  .feat-row.flagged { border-color: rgba(255,184,48,.35); }
+  .feat-name { color: var(--muted); }
+  .feat-val  { font-weight: 700; }
+  .feat-val.ok   { color: var(--safe); }
+  .feat-val.warn { color: var(--warn); }
+  .feat-val.bad  { color: var(--danger); }
+
+  /* whois info */
+  .whois-note {
+    padding: 8px 16px;
+    font-family: var(--mono);
+    font-size: .62rem;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .cached-badge {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: .55rem;
+    color: var(--muted);
+  }
+
+  /* ── footer ──────────────────────────────────────────────────── */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: .6rem;
+    color: var(--muted);
+    background: var(--surface);
+  }
+  .api-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 4px;
+    background: var(--muted);
+  }
+  .api-dot.online { background: var(--safe); box-shadow: 0 0 5px var(--safe); }
+  .api-dot.offline { background: var(--danger); }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="hex-shield">🛡</div>
+  <div class="header-text">
+    <h1>PhishGuard</h1>
+    <p>// Real-time threat analysis</p>
+  </div>
+  <button class="rescan-btn" id="rescan-btn" title="Force re-scan">↻ Rescan</button>
+</div>
+
+<!-- URL BAR -->
+<div class="url-bar" id="url-bar">—</div>
+
+<!-- STATE: SCANNING -->
+<div id="state-scanning">
+  <div class="pulse-ring"></div>
+  <div class="scan-label">Analyzing URL<span class="scan-dots"></span></div>
+</div>
+
+<!-- STATE: ERROR -->
+<div id="state-error">
+  <div class="error-box">
+    <div class="err-title">⚠ API Unreachable</div>
+    <div id="err-msg"></div>
+    <div class="error-cmd" id="err-cmd"></div>
+  </div>
+</div>
+
+<!-- STATE: RESULT -->
+<div id="state-result">
+  <div class="verdict-strip" id="verdict-strip">
+    <span class="verdict-emoji" id="verdict-emoji"></span>
+    <div class="verdict-info">
+      <h2 id="verdict-title"></h2>
+      <p id="verdict-sub"></p>
+    </div>
+    <div class="score-pill">
+      <div class="score-num" id="score-num"></div>
+      <div class="score-lbl">risk score</div>
+    </div>
+  </div>
+
+  <div class="gauge-wrap">
+    <div class="gauge-row">
+      <span>Safe</span>
+      <span id="gauge-label"></span>
+      <span>Critical</span>
+    </div>
+    <div class="gauge-track">
+      <div class="gauge-fill" id="gauge-fill" style="width:0%"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Signal Breakdown</div>
+    <div class="feat-list" id="feat-list"></div>
+  </div>
+
+  <div class="whois-note">
+    <span id="latency-note"></span>
+    <span class="cached-badge" id="cached-badge" style="display:none">⚡ cached</span>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <span>
+    <span class="api-dot" id="api-dot"></span>
+    <span id="api-status">checking API…</span>
+  </span>
+  <span id="model-info"></span>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
