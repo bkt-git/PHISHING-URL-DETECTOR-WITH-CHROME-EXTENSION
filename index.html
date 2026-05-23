@@ -421,49 +421,26 @@
   const history_log = [];
 
   // ── health check ─────────────────────────────────────────────────
-  // ── Smart uto-Wakeup Health Check ─────────────────────────────────
   async function checkHealth() {
     const dot  = document.getElementById("status-dot");
     const txt  = document.getElementById("status-text");
-    const btn  = document.getElementById("scan-btn");
-    
-    // Disable the analyze button while the server is sleeping
-    btn.disabled = true;
-    dot.className = "status-dot err";
-    txt.textContent = "Waking up cloud engine… Please wait";
-
-    let attempts = 0;
-    const maxAttempts = 20; // Try for up to 100 seconds (Render cold starts take ~30-50s)
-
-    while (attempts < maxAttempts) {
-      try {
-        // Send a ping to the live Render backend
-        const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(6000) });
-        const d = await r.json();
-        
-        if (d.model_loaded) {
-          // Backend is awake and model is ready! Re-enable everything
-          dot.className = "status-dot ok";
-          txt.textContent = `System Live · ${d.features} features ready`;
-          btn.disabled = false;
-          return; // Stop checking
-        }
-      } catch (e) {
-        // Server is still spinning up, swallow error and keep loop running
-        console.log("Backend instance still sleeping, retrying...");
+    try {
+      const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) });
+      const d = await r.json();
+      if (d.model_loaded) {
+        dot.className = "status-dot ok";
+        txt.textContent = `API ready · ${d.features} features`;
+      } else {
+        dot.className = "status-dot err";
+        txt.textContent = "Model not loaded — run train_model.py";
       }
-
-      attempts++;
-      // Wait 5 seconds before pinging again to give Render time to boot
-      await new Promise(resolve => setTimeout(resolve, 5000));
+    } catch {
+      dot.className = "status-dot err";
+      txt.textContent = "API offline — run api.py";
     }
-
-    // If it fails after max attempts
-    txt.textContent = "Backend connection timed out. Refresh page.";
   }
-  
-  // Instantly triggers the wake-up loop as soon as the DOM loads
   checkHealth();
+
   // ── scan ─────────────────────────────────────────────────────────
   async function scan() {
     const url   = document.getElementById("url-input").value.trim();
